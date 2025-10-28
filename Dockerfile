@@ -1,5 +1,6 @@
 ARG GO_VERSION=1.25
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine as build
+ARG MAIN_PKG=./variants/caddy-tailscale
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS build
 
 WORKDIR /work
 
@@ -11,12 +12,13 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-ARG TARGETOS TARGETARCH TARGETVARIANT
+ARG TARGETOS TARGETARCH TARGETVARIANT MAIN_PKG
 RUN \
   if [ "${TARGETARCH}" = "arm" ] && [ -n "${TARGETVARIANT}" ]; then \
   export GOARM="${TARGETVARIANT#v}"; \
   fi; \
-  GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 go build -v ./cmd/caddy
+  GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 \
+  go build -v -o /work/caddy "${MAIN_PKG}"
 
 # From https://github.com/caddyserver/caddy-docker/blob/master/2.10/alpine/Dockerfile
 FROM alpine:3.21
@@ -28,11 +30,12 @@ RUN mkdir -p \
   /usr/share/caddy
 
 COPY --from=build /work/caddy /usr/bin/caddy
-COPY examples/simple.caddyfile /etc/caddy/Caddyfile
 
 # See https://caddyserver.com/docs/conventions#file-locations for details
 ENV XDG_CONFIG_HOME /config
 ENV XDG_DATA_HOME /data
+
+LABEL org.opencontainers.image.source="https://github.com/rzhw/caddy-tailscale"
 
 EXPOSE 80
 EXPOSE 443

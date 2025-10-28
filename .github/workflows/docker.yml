@@ -3,16 +3,16 @@ name: Docker
 on:
   push:
     # push events will publish a new image, so only trigger on main branch or semver tags.
-    branches: ["main"]
+    branches: ["custom"]
     tags: ["v*"]
   pull_request:
     # Run the workflow on pull_request events to ensure we can still build the image.
     # We only publish the image on push events (see if statements in steps below).
-    branches: ["main"]
+    branches: ["custom"]
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_BASE_NAME: ${{ github.repository_owner }}/caddy
 
 concurrency:
   group: ${{ github.workflow }}-$${{ github.head_ref || github.run_id }}
@@ -21,6 +21,11 @@ concurrency:
 jobs:
   build-and-push-image:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - variant: l4-tailscale
+          - variant: tailscale
     permissions:
       contents: read
       packages: write
@@ -44,7 +49,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}-${{ matrix.variant }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -60,6 +65,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64,linux/arm/v7
+          build-args: |
+            MAIN_PKG=./variants/caddy-${{ matrix.variant }}
 
       # Sign the Docker image
       - name: Install cosign
@@ -67,4 +74,4 @@ jobs:
         uses: sigstore/cosign-installer@3454372f43399081ed03b604cb2d021dabca52bb #v3.8.2
       - name: Sign the published Docker image
         if: github.event_name == 'push'
-        run: cosign sign --yes ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+        run: cosign sign --yes ${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}-${{ matrix.variant }}@${{ steps.build-and-push.outputs.digest }}
